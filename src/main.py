@@ -1,80 +1,141 @@
 import numpy as np
+from sys import exit
 from globals import *
-from robot import *
-from obstacle import *
-from point import *
+from random import choice, randint
 
-# TODO: Correct erros and understand code
+Q: dict[dict[int]] = {}
+get_Qstate = lambda state : Q.get(state, { direction : 0 for direction in DIRECTIONS})
+get_Qval = lambda state, action : get_Qstate(state).get(action, 0)
+vector_add = lambda v1, v2 : (v1[0] + v2[0], v1[1] + v2[1])
 
-def training(epochs: int) -> np.ndarray:
-    global robot, obstacle, objective
-    Q = np.zeros((MAP_HEIGHT, MAP_WIDTH, MAP_HEIGHT, MAP_WIDTH, 8))
-    for _ in range(epochs):
-        robot.reset()
-        obstacle.reset()
-        action = robot.choose_action(obstacle, Q)
+def choose_action(state):
+    valid = valid_actions(state[0])
+    if EPSILON.roll():
+        return choice(valid)
+    
+    Qstate = get_Qstate(state)
+    max_val = Qstate.get(valid[0], 0)
+    max_action = valid[0]
 
-        while (not robot.collides_with(objective)) and (not robot.collides_with(obstacle)):
-            next_robot = robot.next(action)
-            next_obstacle = obstacle.next()
+    for direction in valid:
+        if Qstate.get(direction, 0) > max_val:
+            max_val = get_Qval(state, direction)
+            max_action = direction
 
-            reward = VALUES['none']
-            if robot.collides_with(objective):
-                reward = VALUES['reward']
-            elif robot.collides_with(obstacle):
-                reward = VALUES['punishment']
+    return max_action
 
-            next_action = next_robot.choose_action(next_obstacle, Q)
-            Q[robot.col, robot.row, obstacle.col, obstacle.row, action] += CONSTANTS['alpha'] * (reward + CONSTANTS['gamma'] * Q[next_robot.col, next_robot.row, next_obstacle.col, next_obstacle.row] - Q[robot.col, robot.row, obstacle.col, obstacle.row])
-            if reward == VALUES['reward'] or reward == VALUES['punishment']:
+
+
+def valid_actions(robot_pos):
+    valid = []
+    for direction in DIRECTIONS:
+        new_pos = vector_add(robot_pos, direction)
+        if MAP_CONTAINS(new_pos):
+            valid.append(direction)
+    
+    return valid
+
+def initialize_map():
+    robot_pos = None
+    objec_pos = None
+    obsta_pos = None
+
+    for row_idx, row in enumerate(MAP):
+        for col_idx, col in enumerate(row):
+            if col == 'K':
+                obsta_pos = (col_idx, row_idx)
+            elif col == 'R':
+                robot_pos = (col_idx, row_idx)
+            elif col == 'X':
+                objec_pos = (col_idx, row_idx)
+
+    if robot_pos is None or objec_pos is None or obsta_pos is None:
+        print("Error! Could not initialize all necessary objects!")
+        exit(0)
+
+    return (robot_pos, objec_pos, obsta_pos)
+
+def training(epochs) -> int:
+    global robot, obj, obst, Q
+    irobot, iobst = robot, obst
+
+    collisions = 0
+    for i in range(epochs):
+        robot, obst = irobot, iobst
+        state = (robot, obst)
+        action = choose_action(state)
+        while robot != obj and robot != obst:
+            new_robot = vector_add(robot, action)
+            if MAP_CONTAINS(new_robot):
+                robot = new_robot
+            else:
+                Q[state][action] = -float('inf')
+            obst = vector_add(obst, (0, randint(1, 3)))
+            obst = (obst[0], obst[1] % MAP_HEIGHT)
+            new_state = (robot, obst)
+
+            reinforcement = REWARDS['0']
+            if robot == obst: reinforcement = REWARDS['-']
+            elif robot == obj: reinforcement = REWARDS['+']
+
+            new_action = choose_action(new_state)
+
+            if state not in Q:
+                Q[state] = { direction : 0 for direction in DIRECTIONS }
+
+            currqval = get_Qval(state, action)
+            nextqval = get_Qval(new_state, new_action)
+            Q[state][action] = currqval + CONSTANTS['alpha'] * (reinforcement + CONSTANTS['gamma'] * nextqval - currqval)
+
+            if reinforcement != REWARDS['0']:
+                if reinforcement == REWARDS['-']:
+                    collisions += 1
                 break
 
-            action = next_action
-            robot.do_next(next_robot)
-            obstacle.do_next(next_obstacle)
+            state = new_state
+            action = new_action
 
-    robot.reset()
-    obstacle.reset()
-    return Q
+    robot, obst = irobot, iobst
+    for state in Q.keys():
+        for direction in Q[state]:
+            pos = vector_add(state[0], direction)
+            if not MAP_CONTAINS(pos):
+                Q[state][direction] = -float('inf')
 
+    return collisions
 
-def initialize_map(map: list[str]) -> tuple[Robot, Obstacle, Point]:
-    robot = None
-    obstacle = None
-    objective = None
-    for row in map:
-        for col in row:
-            if col == 'R':
-                robot = Robot(col, row)
-            elif col == 'K':
-                obstacle = Obstacle(col, row)
-            elif col == 'E':
-                objective = Point(col, row)
+if __name__ == '__main__':
+    robot, obj, obst = initialize_map()
+    epochs = int(input("Insert number of epochs: "))
+    print("Training...")
+    coll = training(epochs)
 
-    return (robot, obstacle, objective)
-
-if __name__ == "__main__":
-    robot, obstacle, objective = initialize_map(MAP)
-    epochs = None
-    while (epochs == None):
-        epochs = input("Insert number of epochs: ")
-        try:
-            epochs = int(epochs)
-        except:
-            print("Invalid entry!")
-            epochs = None
-    
-    Q = training(epochs)
-    path = [Point(robot)]
-
-    while not robot.collides_with(objective):
-        action = np.argmax(Q[robot.col, robot.row, obstacle.col, obstacle.row])
-        robot.do_next(robot.next(action))
-        obstacle.do_next(obstacle.next())
-        path.append(Point(robot))
-        print(f"Robot: {robot}, Obstacle: {obstacle}")
-        if robot.collides_with(obstacle):
-            print("Collision detected!")
+    print(f"{'-'*20} TRAINING COMPLETE! {'-'*20}")
+    print(f"Number of Collisions: {coll} ({coll*100/epochs}%)")
+    path = []
+    state = (robot, obst)
+    print(f"{'-'*20} GREEDY TRAJECTORY: {'-'*20}")
+    while robot != obj and robot != obst:
+        action = choose_action(state)
+        new_robot = vector_add(robot, action)
+        if MAP_CONTAINS(new_robot):
+            robot = new_robot
+        obst = vector_add(obst, (0, randint(1, 3)))
+        obst = (obst[0], obst[1] % MAP_HEIGHT)
+        path.append(robot)
+        print(f"Robot: {robot}, Obstacle: {obst}")
+        if robot == obst:
+            print(f"{'-'*20} COLLISION DETECTED! {'-'*20}")
+            break
+        elif robot == obj:
+            print(f"{'-'*20} GOAL REACHED! {'-'*20}")
             break
 
-    print(f"Path: {path}")
+        state = (robot, obst)
+
+    print(f"{'-'*20} FULL PATH {'-'*20}")
+    for point in path:
+        if point == path[-1]:
+            print(point)
+        else: 
+            print(point, end = ' -> ')
