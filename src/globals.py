@@ -34,11 +34,11 @@ DIRECTIONS = [
     (-1, -1) # move up-left
 ]
 
-EPSILON = Percentage(8)
+EPSILON = Percentage(9)
 
 CONSTANTS = {
-    'alpha': 0.04,
-    'gamma': 0.7
+    'alpha': 0.06,
+    'gamma': 0.8
 }
 
 REWARDS = {

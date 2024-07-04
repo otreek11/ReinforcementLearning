@@ -1,12 +1,13 @@
-import numpy as np
-from sys import exit
 from globals import *
+from sys import exit
+import matplotlib.pyplot as plt
+import matplotlib.animation as animation
 from random import choice, randint
 
-Q: dict[dict[int]] = {}
-get_Qstate = lambda state : Q.get(state, { direction : 0 for direction in DIRECTIONS})
-get_Qval = lambda state, action : get_Qstate(state).get(action, 0)
-vector_add = lambda v1, v2 : (v1[0] + v2[0], v1[1] + v2[1])
+Q = {}
+get_Qstate = lambda state: Q.get(state, { direction: 0 for direction in DIRECTIONS })
+get_Qval = lambda state, action: get_Qstate(state).get(action, 0)
+vector_add = lambda v1, v2: (v1[0] + v2[0], v1[1] + v2[1])
 
 def choose_action(state):
     valid = valid_actions(state[0])
@@ -23,8 +24,6 @@ def choose_action(state):
             max_action = direction
 
     return max_action
-
-
 
 def valid_actions(robot_pos):
     valid = []
@@ -111,8 +110,10 @@ if __name__ == '__main__':
     coll = training(epochs)
 
     print(f"{'-'*20} TRAINING COMPLETE! {'-'*20}")
-    print(f"Number of Collisions: {coll} ({coll*100/epochs}%)")
+    print(f"Number of Collisions: {coll} ({coll*100/epochs:.2f}%)")
+
     path = []
+    obst_path = []
     state = (robot, obst)
     print(f"{'-'*20} GREEDY TRAJECTORY: {'-'*20}")
     while robot != obj and robot != obst:
@@ -123,6 +124,7 @@ if __name__ == '__main__':
         obst = vector_add(obst, (0, randint(1, 3)))
         obst = (obst[0], obst[1] % MAP_HEIGHT)
         path.append(robot)
+        obst_path.append(obst)
         print(f"Robot: {robot}, Obstacle: {obst}")
         if robot == obst:
             print(f"{'-'*20} COLLISION DETECTED! {'-'*20}")
@@ -133,9 +135,30 @@ if __name__ == '__main__':
 
         state = (robot, obst)
 
-    print(f"{'-'*20} FULL PATH {'-'*20}")
-    for point in path:
-        if point == path[-1]:
-            print(point)
-        else: 
-            print(point, end = ' -> ')
+    fig, ax = plt.subplots()
+    ax.set_aspect('equal')
+    ax.set_xlim(0, MAP_WIDTH)
+    ax.set_ylim(MAP_HEIGHT, 0)
+    ax.set_title('Greedy Trajectory Animation')
+
+    ax.scatter(obj[0], obj[1], color='green', marker='*', s=200)
+
+    robot_plot, = ax.plot([], [], 'bo', markersize=10)
+    obst_plot, = ax.plot([], [], 'rs', markersize=10)
+    path_line, = ax.plot([], [], 'g-', lw=1)
+    obst_path_line, = ax.plot([], [], 'k-', lw=1)
+
+    def init():
+        return []
+
+    def animate(i):
+        if i < len(path):
+            robot_plot.set_data([path[i][0]], [path[i][1]])
+            obst_plot.set_data([obst_path[i][0]], [obst_path[i][1]])
+            path_line.set_data([step[0] for step in path[:i+1]], [step[1] for step in path[:i+1]])
+            obst_path_line.set_data([step[0] for step in obst_path[:i+1]], [step[1] for step in obst_path[:i+1]])
+
+        return [robot_plot, obst_plot, path_line, obst_path_line]
+
+    ani = animation.FuncAnimation(fig, animate, frames=len(path), init_func=init, blit=True)
+    plt.show()
